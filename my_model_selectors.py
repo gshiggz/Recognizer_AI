@@ -75,9 +75,28 @@ class SelectorBIC(ModelSelector):
         :return: GaussianHMM object
         """
         warnings.filterwarnings("ignore", category=DeprecationWarning)
+        warnings.filterwarnings("ignore", message="divide by zero encountered in log")
 
         # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        best_bic = None
+        best_state = self.n_constant
+
+        for n_state in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                hmm_model = self.base_model(n_state)
+                d = len(self.X[0])
+                p = n_state ** 2 + (2 * d * n_state) - 1
+                logL = hmm_model.score(self.X, self.lengths)
+                bic = -2 * logL + p * np.log(n_state)
+                if best_bic is None or best_bic > bic:
+                    best_bic = bic
+                    best_state = n_state
+            except:
+
+                bic = float('-inf')
+
+        return self.base_model(best_state)
+
 
 
 class SelectorDIC(ModelSelector):
@@ -92,9 +111,32 @@ class SelectorDIC(ModelSelector):
 
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
+        warnings.filterwarnings("ignore", message="divide by zero encountered in log")
 
         # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        best_dic = None
+        best_state = self.n_constant
+
+        other_words = list(self.words)
+        other_words.remove(self.this_word)
+
+        for n_state in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                hmm_model = self.base_model(n_state)
+                logL_word = hmm_model.score(self.X, self.lengths)
+                other_scores = 0.0
+                for word in other_words:
+                    X, lengths = self.hwords[word]
+                    other_scores += hmm_model.score(X, lengths)
+                    m = len(self.words) - 1
+                dic = logL_word - (other_scores / m)
+                if best_dic is None or best_dic < dic:
+                    best_dic = dic
+                    best_state = n_state
+            except:
+                pass
+
+        return self.base_model(best_state)
 
 
 class SelectorCV(ModelSelector):
@@ -104,6 +146,45 @@ class SelectorCV(ModelSelector):
 
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
+        warnings.filterwarnings("ignore", message="divide by zero encountered in log")
 
         # TODO implement model selection using CV
-        raise NotImplementedError
+        best_score = None
+        best_state = self.n_constant
+
+        for n_state in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                scores = []
+                score = 0.0
+
+                if (len(self.sequences) > 1):
+
+                    folds = min(len(self.sequences), 3)
+                    kf = KFold(shuffle=True, n_splits=folds)
+
+                    for cv_train_idx, cv_test_idx in kf.split(self.sequences):
+                        test_scores = []
+                        self.X, self.lengths = combine_sequences(cv_train_idx, self.sequences)
+                        X_test, lengths_test = combine_sequences(cv_test_idx, self.sequences)
+
+                        model = GaussianHMM(n_components=n_state,
+                                            covariance_type="diag",
+                                            n_iter=1000,
+                                            random_state=self.random_state,
+                                            verbose=False).fit(X_train, lengths_train)
+
+                        test_scores.append(model.score(X_test, lengths_test))
+
+                    score = scores.append(np.mean(test_scores))
+
+                else:
+                    score = scores.append(np.mean(model.score(self.X, self.lengths)))
+
+                if best_score is None or best_score < score:
+                    best_score = score
+                    best_state = n_state
+
+            except:
+                pass
+
+        return self.base_model(best_state)
